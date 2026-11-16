@@ -1,6 +1,6 @@
 [project]
 name = "vgi-tsa-worker"
-version = "0.1.0"
+version = "0.1.1"
 description = "TSA checkpoint passenger volumes (national daily counts and FOIA hourly airport/checkpoint reports) as DuckDB SQL tables and functions."
 readme = "README.md"
 license = "0BSD"

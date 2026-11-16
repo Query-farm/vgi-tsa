@@ -47,7 +47,7 @@ INSTALL vgi FROM query_farm;
 LOAD vgi FROM query_farm;
 
 ATTACH 'tsa' (TYPE vgi,
-  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-tsa@v0.1.0 vgi-tsa-worker');
+  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-tsa@v0.1.1 vgi-tsa-worker');
 ```
 
 In Haybarn 2.0: `INSTALL vgi FROM community; LOAD vgi;` then the same `ATTACH`.
