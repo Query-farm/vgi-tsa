@@ -1,15 +1,21 @@
 [project]
 name = "vgi-tsa-worker"
 version = "0.1.0"
-description = "A VGI worker for DuckDB, generated from the Query.Farm VGI starter template."
+description = "TSA checkpoint passenger volumes (national daily counts and FOIA hourly airport/checkpoint reports) as DuckDB SQL tables and functions."
 readme = "README.md"
-license = "MIT-0"
+license = "0BSD"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     # [http] adds the HTTP transport (`--http`) used by Docker deploys.
     # SDK bumps go through the template (minor bumps can raise the protocol).
-    "vgi-python[http]>=0.51.1,<0.52",
+    # [haybarn] lets the SDK evaluate the WHERE filters DuckDB pushes into daily_throughput.
+    "vgi-python[http,haybarn]>=0.51.1,<0.52",
+    # Reads the drawn tables of TSA's FOIA throughput PDFs (Apache-2.0/BSD-3, wheels bundle PDFium).
+    "pypdfium2>=4.30",
+    "platformdirs>=4.3",
+    # The OS trust store for HTTPS: uv-managed Pythons ship no usable CA bundle.
+    "truststore>=0.10",
 ]
 
 [project.scripts]
@@ -54,6 +60,10 @@ files = ["src", "tests", "examples"]
 [[tool.mypy.overrides]]
 module = ["vgi.*", "vgi_rpc.*"]
 follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pypdfium2", "pypdfium2.*"]
+ignore_missing_imports = true
 
 [tool.pydoclint]
 style = "google"

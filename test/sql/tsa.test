@@ -1,148 +1,176 @@
 # name: test/sql/tsa.test
-# description: SQL-level tests for the tsa worker, run through DuckDB by ci/run-integration.sh
+# description: SQL-level tests for the tsa worker against a trimmed offline mirror of tsa.gov
 # group: [tsa]
-# managed-by: vgi-starters (edit upstream in shared/, then run tools/render.py)
 
 require vgi
 
 require-env TSA_WORKER
 
-require-env TSA_MOCK_API
+require-env TSA_FIXTURES
 
-require-env TSA_MOCK_API_AUTH
+require-env TSA_CACHE
 
+# test/fixtures/tsa is laid out like tsa.gov (scripts/make_fixtures.py), so the worker reads it
+# through its ordinary base_url option; cache_dir is a scratch directory the Makefile empties first.
 statement ok
-ATTACH 'tsa' (TYPE vgi, LOCATION '{TSA_WORKER}');
+ATTACH 'tsa' (TYPE vgi, LOCATION '{TSA_WORKER}', base_url '{TSA_FIXTURES}', cache_dir '{TSA_CACHE}');
 
-# ---------------------------------------------------------------- greet (scalar)
+# ------------------------------------------------------------ daily_throughput
 
-query T
-SELECT tsa.main.greet('Ada');
+query IITT
+SELECT count(*), sum(travelers), min(date)::VARCHAR, max(date)::VARCHAR FROM tsa.main.daily_throughput;
 ----
-Hi, Ada!
-
-query T
-SELECT tsa.main.greet('Ada', 'formal');
-----
-Good day, Ada.
-
-# NULL in, NULL out.
-query T
-SELECT tsa.main.greet(NULL);
-----
-NULL
-
-# Works over a whole column, one result per row.
-query T
-SELECT tsa.main.greet(name) FROM (VALUES ('Ada'), ('Grace'), (NULL)) AS t(name) ORDER BY ALL NULLS LAST;
-----
-Hi, Ada!
-Hi, Grace!
-NULL
-
-# `style` is constrained to 'casual' | 'formal' and checked when the query is bound.
-# (No expected message: each SDK words constraint errors its own way.)
-statement error
-SELECT tsa.main.greet('Ada', 'loud');
-----
-<REGEX>:.*
-
-# ------------------------------------------------------ sequence_table (table fn)
-
-query II
-SELECT n, squared FROM tsa.main.sequence_table(4) ORDER BY n;
-----
-0	0
-1	1
-2	4
-3	9
-
-# Named argument with a default.
-query I
-SELECT n FROM tsa.main.sequence_table(3, step := 5) ORDER BY n;
-----
-0
-5
-10
-
-# Larger than one batch: the cursor must carry across process calls.
-query II
-SELECT count(*), max(n) FROM tsa.main.sequence_table(25000);
-----
-25000	24999
-
-query I
-SELECT count(*) FROM tsa.main.sequence_table(0);
-----
-0
-
-# count is constrained to [0, 1000000].
-statement error
-SELECT * FROM tsa.main.sequence_table(-1);
-----
-<REGEX>:.*
-
-# Named arguments are constrained too: step >= 1.
-statement error
-SELECT * FROM tsa.main.sequence_table(3, step := 0);
-----
-<REGEX>:.*
-
-# ------------------------------------------------- fetch_items (REST table fn)
-
-query IIT
-SELECT count(*), sum(id), min(name) FROM tsa.main.fetch_items('{TSA_MOCK_API}', page_size := 4);
-----
-25	325	item-01
+2873	5981524913	2019-01-01	2026-11-12
 
 query TI
-SELECT category, count(*) FROM tsa.main.fetch_items('{TSA_MOCK_API}') GROUP BY category ORDER BY category;
+SELECT date::VARCHAR, travelers FROM tsa.main.daily_throughput
+WHERE date BETWEEN DATE '2024-01-01' AND DATE '2024-12-31' ORDER BY travelers DESC LIMIT 3;
 ----
-hardware	8
-service	8
-software	9
+2024-12-01	3088836
+2024-07-07	3013622
+2024-06-23	2996495
 
-# The harness runs TSA_MOCK_API with MOCK_API_FLAKY=1: every page answers
-# 429 + Retry-After once, so every query above also exercised the retry path.
-
-# TSA_MOCK_API_AUTH requires a bearer token ('test-token'). Every language's
-# fetch_items must put the HTTP status code in its error message.
-statement error
-SELECT count(*) FROM tsa.main.fetch_items('{TSA_MOCK_API_AUTH}');
+# An equality filter pushes down to a single yearly page.
+query I
+SELECT travelers FROM tsa.main.daily_throughput WHERE date = DATE '2020-04-14';
 ----
-401
+113147
 
+query II
+SELECT year(date) AS y, count(*) FROM tsa.main.daily_throughput WHERE date >= DATE '2025-12-30' AND date < DATE '2026-01-03' GROUP BY y ORDER BY y;
+----
+2025	2
+2026	2
+
+# Pushdown: on a fresh cache an equality filter fetches only the current-year page (always
+# read, it lists the archive years) and that one year.
 statement ok
-CREATE SECRET tsa_api_test (TYPE tsa_api, TOKEN 'test-token');
+ATTACH 'tsa' AS tsa_pushdown (TYPE vgi, LOCATION '{TSA_WORKER}', base_url '{TSA_FIXTURES}', cache_dir '{TSA_CACHE}/pushdown');
 
 query I
-SELECT count(*) FROM tsa.main.fetch_items('{TSA_MOCK_API_AUTH}', page_size := 25);
+SELECT travelers FROM tsa_pushdown.main.daily_throughput WHERE date = DATE '2021-07-04';
 ----
-25
+1697422
 
-# Several pages: the token must survive between batches (over HTTP each batch is a
-# separate request, so a token kept only in memory is lost after page 1).
-query I
-SELECT count(*) FROM tsa.main.fetch_items('{TSA_MOCK_API_AUTH}', page_size := 7);
+query TT
+SELECT min(start_date)::VARCHAR, max(end_date)::VARCHAR FROM tsa_pushdown.main.cache_info WHERE kind = 'daily_volumes';
 ----
-25
+2021-01-01	2026-11-12
+
+query I
+SELECT count(*) FROM tsa_pushdown.main.cache_info WHERE kind = 'daily_volumes';
+----
+2
 
 statement ok
-DROP SECRET tsa_api_test;
+DETACH tsa_pushdown;
 
-# base_url must be http(s).
+# date is the primary key, so it is never NULL.
+query I
+SELECT count(*) FROM tsa.main.daily_throughput WHERE date IS NULL;
+----
+0
+
+# ---------------------------------------------------------- throughput_reports
+
+query IITT
+SELECT count(*), count(start_date), min(start_date)::VARCHAR, max(end_date)::VARCHAR FROM tsa.main.throughput_reports;
+----
+517	517	2015-01-04	2026-11-07
+
+query TTT
+SELECT start_date::VARCHAR, end_date::VARCHAR, title FROM tsa.main.throughput_reports
+WHERE end_date >= DATE '2026-10-20' ORDER BY end_date DESC;
+----
+2026-11-01	2026-11-07	TSA Throughput Data to November 1, 2026 to November 7, 2026
+2026-10-25	2026-10-31	TSA Throughput Data to October 25, 2026 to October 31, 2026
+2026-10-18	2026-10-24	TSA Throughput Data to October 18, 2026 to October 24, 2026
+
+# Hand-typed titles with typos still get the dates in their file names.
+query TT
+SELECT start_date::VARCHAR, end_date::VARCHAR FROM tsa.main.throughput_reports
+WHERE title = 'TSA Throughput Data to August 30, 2025 to August 9, 2025';
+----
+2025-08-03	2025-08-09
+
+# ------------------------------------------------------- checkpoint_throughput
+
+query TI
+SELECT checkpoint, throughput FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-01', airport := 'ATL')
+WHERE hour = 0 ORDER BY checkpoint;
+----
+F Arrival Checkpoint	7
+Main Checkpoint	35
+
+# Nothing cached is fetched again; the trimmed fixture PDF has 194 valid rows for this week.
+query IIII
+SELECT count(*), sum(throughput), count(DISTINCT airport), count(DISTINCT date)
+FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-07');
+----
+194	25845	57	3
+
+# A wrapped airport code ("MD" + "W") is rejoined.
+query TTTT
+SELECT DISTINCT airport, airport_name, city, state FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-07', airport := 'mdw');
+----
+MDW	Chicago Midway International	Chicago	IL
+
+query TI
+SELECT state, count(DISTINCT airport) FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-07', state := 'NY') GROUP BY state;
+----
+NY	2
+
+# The 2017-2022 layout ("PMIS - Total Customer Throughput") parses too.
+query TIIT
+SELECT date::VARCHAR, hour, throughput, report_url FROM tsa.main.checkpoint_throughput(DATE '2021-12-05', DATE '2021-12-11', airport := 'ANC')
+ORDER BY date, hour LIMIT 1;
+----
+2021-12-05	0	89	https://www.tsa.gov/sites/default/files/foia-readingroom/tsa-throughput-december-5-2021-to-december-11-2021.pdf
+
+# A range with no report says so.
 statement error
-SELECT * FROM tsa.main.fetch_items('ftp://example.com');
+SELECT * FROM tsa.main.checkpoint_throughput(DATE '2016-06-01', DATE '2016-06-07');
+----
+<REGEX>:.*no TSA throughput report covers.*
+
+statement error
+SELECT * FROM tsa.main.checkpoint_throughput(DATE '2026-11-07', DATE '2026-11-01');
+----
+<REGEX>:.*before start_date.*
+
+# A range needing more uncached weeks than max_reports (default 8) fails before downloading anything.
+statement error
+SELECT count(*) FROM tsa.main.checkpoint_throughput(DATE '2026-01-01', DATE '2026-06-30');
+----
+<REGEX>:.*max_reports = 8.*
+
+# airport must be a 3-character code.
+statement error
+SELECT * FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-07', airport := 'ATLX');
 ----
 <REGEX>:.*
 
-# page_size is a named argument constrained to [1, 1000].
+# A week listed in the index but missing from the mirror fails with the path.
 statement error
-SELECT * FROM tsa.main.fetch_items('{TSA_MOCK_API}', page_size := 0);
+SELECT * FROM tsa.main.checkpoint_throughput(DATE '2026-10-25', DATE '2026-10-31');
 ----
-<REGEX>:.*
+<REGEX>:.*does not exist.*
 
-statement error
-SELECT * FROM tsa.main.fetch_items('{TSA_MOCK_API}', page_size := 5000);
+query I
+SELECT count(*) FROM tsa.main.checkpoint_throughput_rejects(DATE '2026-11-01', DATE '2026-11-07');
 ----
-<REGEX>:.*
+0
+
+# ---------------------------------------------------------------- cache_info
+
+query TIII
+SELECT kind, count(*), sum(rows), sum(rejected_rows) FROM tsa.main.cache_info GROUP BY kind ORDER BY kind;
+----
+checkpoint_report	2	334	0
+daily_volumes	8	2873	NULL
+report_index	1	517	NULL
+
+query TII
+SELECT cached, parsed_rows, rejected_rows FROM tsa.main.throughput_reports WHERE start_date = DATE '2026-11-01';
+----
+true	194	0

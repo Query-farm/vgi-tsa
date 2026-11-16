@@ -1,16 +1,29 @@
 # Private graders for the public vgi.agent_test_tasks in the worker's catalog metadata.
 # `vgi-lint lint --ai` runs an agent on each prompt and grades it with check_sql.
 # See https://github.com/Query-farm/vgi-lint-check (VGI920).
+# The data is live (tsa.gov keeps adding days and weeks), so every grader is a check_sql that
+# holds for both the offline fixture mirror (vgi-lint.toml) and live tsa.gov.
 tasks:
-  - name: formal_greeting
-    reference_sql: SELECT tsa.main.greet('Grace', 'formal') AS greeting
-  - name: sum_of_squares
-    reference_sql: SELECT sum(squared) AS total FROM tsa.main.sequence_table(10)
-  - name: stepped_sequence
-    reference_sql: SELECT n FROM tsa.main.sequence_table(4, step := 5) ORDER BY n
-  # Reads the public demo API (https://vgi-starter-api.query-farm.services/v1).
-  - name: items_per_category
+  - name: busiest_day_2024
     check_sql: >-
-      SELECT count(*) = 3 AND sum(items) = 25
-      FROM (SELECT category, count(*) AS items
-            FROM tsa.main.fetch_items('https://vgi-starter-api.query-farm.services/v1') GROUP BY category)
+      SELECT count(*) = 1 FROM tsa.main.daily_throughput
+      WHERE date = DATE '2024-12-01' AND travelers = 3088836
+  - name: latest_report_week
+    check_sql: >-
+      SELECT max(end_date) >= DATE '2026-11-07' AND max(end_date) - max(start_date) BETWEEN 4 AND 9
+      FROM tsa.main.throughput_reports
+  - name: atl_checkpoints
+    check_sql: >-
+      SELECT count(*) >= 2 AND sum(passengers) > 0
+      FROM (SELECT checkpoint, sum(throughput) AS passengers
+            FROM tsa.main.checkpoint_throughput(DATE '2026-11-01', DATE '2026-11-07', airport := 'ATL')
+            GROUP BY checkpoint)
+  - name: national_2019_vs_2025
+    check_sql: >-
+      SELECT sum(travelers) FILTER (WHERE year(date) = 2019) = 848102043
+         AND sum(travelers) FILTER (WHERE year(date) = 2025) = 906735976
+      FROM tsa.main.daily_throughput WHERE date BETWEEN DATE '2019-01-01' AND DATE '2025-12-31'
+  - name: report_parse_quality
+    check_sql: >-
+      SELECT (SELECT count(*) FROM tsa.main.checkpoint_throughput_rejects(DATE '2026-11-01', DATE '2026-11-07')) = 0
+         AND (SELECT count(*) FROM tsa.main.cache_info WHERE kind = 'checkpoint_report') >= 1

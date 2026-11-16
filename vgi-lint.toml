@@ -7,7 +7,7 @@
 location = ".venv/bin/vgi-tsa-worker"
 
 # Fail on warnings while you build. Raise this to "info" before you publish the worker.
-fail_on = "warning"
+fail_on = "info"
 
 # Waive a finding only with a kind and a reason, so the waiver can be audited:
 #   domain-exemption  permanent and legitimate for this worker
@@ -17,6 +17,13 @@ fail_on = "warning"
 ignore = [
   # { code = "VGI146", kind = "domain-exemption", reason = "every entry point needs a key" },
 ]
+
+# Bound the execution probes: examples run against the trimmed offline mirror of tsa.gov in
+# test/fixtures/tsa (read through the ordinary base_url option) and a scratch cache, so linting
+# never fetches tsa.gov or downloads a 5 MB report PDF.
+[attach_options]
+base_url = "test/fixtures/tsa"
+cache_dir = ".tools/lint-cache"
 
 # Adopting the gate on a worker that already has findings? Record them once with
 #   vgi-lint lint --baseline vgi-lint-baseline --update-baseline

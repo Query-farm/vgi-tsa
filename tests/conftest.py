@@ -1,8 +1,7 @@
-"""Shared fixtures: a worker client and the local mock API."""
+"""Shared fixtures: a worker client and options reading the offline tsa.gov mirror."""
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,7 +9,11 @@ from pathlib import Path
 import pytest
 from vgi.client import Client
 
+from tsa_worker.common import Options, options_from
+
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "test" / "fixtures" / "tsa"
+PDF_DIR = FIXTURES / "sites" / "default" / "files" / "foia-readingroom"
 
 
 @pytest.fixture(scope="session")
@@ -20,17 +23,7 @@ def client() -> Iterator[Client]:
         yield c
 
 
-@pytest.fixture(scope="session")
-def mock_api() -> Iterator[str]:
-    """Start test/mock_api/server.py on a free port and return its base URL."""
-    proc = subprocess.Popen(
-        [sys.executable, str(ROOT / "test" / "mock_api" / "server.py")],
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-    assert proc.stdout is not None
-    line = proc.stdout.readline().strip()
-    assert line.startswith("PORT:"), line
-    yield f"http://127.0.0.1:{line.removeprefix('PORT:')}"
-    proc.terminate()
-    proc.wait(timeout=10)
+@pytest.fixture
+def opts(tmp_path: Path) -> Options:
+    """Options reading the tsa.gov-shaped fixture tree into a fresh cache."""
+    return options_from({"cache_dir": str(tmp_path / "cache"), "base_url": str(FIXTURES)})

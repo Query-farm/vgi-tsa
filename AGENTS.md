@@ -22,17 +22,21 @@ Faster loops while iterating: `make test-unit`, `make test-sql`, `make lint-expl
 
 ```
 src/tsa_worker/
-  worker.py        # assembles the catalog; add new functions to FUNCTIONS
+  worker.py        # assembles the catalog + ATTACH options; add new functions to FUNCTIONS / TABLE_SCANS
   meta.py          # catalog/schema metadata + helpers (object_tags, column)
-  greet.py         # scalar example (overloads, ConstParam choices)
-  sequence.py      # table function example (named args, streaming state)
-  fetch_items.py   # REST API table function (pagination, retries, secrets)
-tests/             # pytest unit tests (in-process client)
-test/sql/          # sqllogictest files run through DuckDB
-test/mock_api/     # offline mock of the REST API used by tests
+  common.py        # ATTACH options, polite fetching (tsa.gov or a local mirror), cache locks
+  volumes.py       # national daily counts: passenger-volumes pages, per-year cache
+  reports.py       # FOIA reading-room index, report selection, PDF download -> Parquet cache
+  pdf_parse.py     # drawn-table parser for the weekly throughput PDFs (pypdfium2)
+  functions.py     # the table functions and table scans
+tests/             # pytest unit tests (offline, against test/fixtures/tsa)
+test/sql/          # sqllogictest files run through DuckDB against test/fixtures/tsa
+test/fixtures/tsa/ # trimmed real tsa.gov pages and PDFs laid out like tsa.gov (scripts/make_fixtures.py)
+test/live/         # opt-in `make live-check` queries against real tsa.gov
+test/mock_api/     # starter mock API; ci/run-integration.sh still starts it (unused here)
 examples/          # recipes: pushdown, caching, catalog tables, aggregates, COPY …
 ci/                # integration harness used by `make test-sql` and CI
-scripts/           # vgi_template.py (init / template-diff)
+scripts/           # vgi_template.py (init / template-diff), make_fixtures.py
 vgi-agent-tests.yaml  # private graders for the agent test tasks
 ```
 
