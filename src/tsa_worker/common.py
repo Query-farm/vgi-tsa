@@ -87,7 +87,7 @@ def options_from(attach_options: Mapping[str, Any]) -> Options:
     max_raw = _value(attach_options.get("max_reports"))
     try:
         max_reports = int(max_raw) if max_raw not in (None, "") else DEFAULT_MAX_REPORTS
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValueError(f"max_reports must be an integer, got {max_raw!r}") from None
     if max_reports < 1:
         raise ValueError(f"max_reports must be at least 1, got {max_reports}")
@@ -256,7 +256,7 @@ def read_json(path: Path) -> Any:
     """Read a JSON cache file, or None when it is missing or unreadable."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
