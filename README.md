@@ -39,6 +39,8 @@ GROUP BY hour ORDER BY hour;
 
 Requires [uv](https://docs.astral.sh/uv/) and DuckDB 2.0 (or [Haybarn](https://query.farm/products/haybarn) 2.0).
 
+vgi-tsa 0.2.0 speaks VGI protocol 3.4, so it needs Haybarn 2.0.1 or newer (Haybarn 2.0.0 loads a 3.3 `vgi` extension that cannot attach it).
+
 ```sql
 -- DuckDB 2.0
 SET allow_extension_repositories = 'allowed';
@@ -47,7 +49,7 @@ INSTALL vgi FROM query_farm;
 LOAD vgi FROM query_farm;
 
 ATTACH 'tsa' (TYPE vgi,
-  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-tsa@v0.1.2 vgi-tsa-worker');
+  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-tsa@v0.2.0 vgi-tsa-worker');
 ```
 
 In Haybarn 2.0: `INSTALL vgi FROM community; LOAD vgi;` then the same `ATTACH`.
